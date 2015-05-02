@@ -1,3 +1,10 @@
+! May/2015: modify to study the cases of mixed -U and +U sites lattice
+! modifications:
+! 1. delete neg_u variable
+! 2. always compute G_dn, delete variable comp_dn
+! 3. correct several lines for explook
+! 4. use DQMC_HAMILT's Uv to determine if that site has -U or +U
+
 module DQMC_Hubbard
 #include "dqmc_include.h"
 
@@ -9,7 +16,8 @@ module DQMC_Hubbard
   use DQMC_SEQB
   use DQMC_GFUN
   use DQMC_STRUCT
-  
+  use DQMC_HAMILT
+
   implicit none 
   ! 
   ! This module contains the data type and subroutines for 
@@ -57,8 +65,9 @@ module DQMC_Hubbard
      integer  :: L                        ! Number of time slices
 
      ! Parameters for Hubbard model
-     integer  :: n_U
-     real(wp), pointer :: U(:)        ! Param of Potential energy
+     integer  :: n_U                  ! this is for each unit cell
+     real(wp), pointer :: U(:)        ! Param of Potential energy, for each unit cell
+     real(wp), pointer :: Usite(:)    ! U for each lattice site 
      integer  :: n_t                  ! Number of hopping
      real(wp), pointer :: t_up(:)     ! Param of Kinetic energy
      real(wp), pointer :: t_dn(:)     ! Param of Kinetic energy
@@ -96,10 +105,6 @@ module DQMC_Hubbard
 
      ! Auxiliary variables
      real(wp), pointer :: explook(:,:) ! Lookup table for computing V
-     logical  :: comp_dn               ! indicator for wheather computing
-                                       ! G_dn or not
-     logical  :: neg_u                 ! are all U_i < 0 ?
-                                       ! CAVEAT: mixed sign may not work
 
      ! Part 2: Parameters for Monte Carlo algorithm
      ! ============================================
@@ -152,7 +157,7 @@ contains
 
   !---------------------------------------------------------------------!
 
-  subroutine DQMC_Hub_Config(Hub, cfg)
+  subroutine DQMC_Hub_Config(Hub, cfg, hamilt)
     use dqmc_mpi
     !
     ! Purpose
@@ -171,6 +176,8 @@ contains
     !
     type(config), intent(inout)  :: cfg
     type(Hubbard), intent(inout) :: Hub                   ! Hubbard model
+    type(Hamiltonian_t), intent(inout) :: hamilt    ! use its Uv to determine site has -U or +U
+                                                    ! for mixed U project
 
     ! ... Local Variables ...
     integer :: n_t, n_U, n_mu, L, HSF, nWarm, nPass
@@ -263,7 +270,7 @@ contains
     nmeas = 1; if (tdm > 0) nmeas = 0
     
     ! call the function
-    call DQMC_Hub_Init(Hub, U, t_up, t_dn, mu_up, mu_dn, L, n_t, n_U, n_mu, dtau, &
+    call DQMC_Hub_Init(Hub, hamilt, U, t_up, t_dn, mu_up, mu_dn, L, n_t, n_U, n_mu, dtau, &
        HSF, nWarm, nPass, nMeas, nTry, nBin, ntausk, seed, nOrth, nWrap, fixw, &
        errrate, difflim, gamma, accept, reject, delta1, delta2, ssxx, HSFtype)
     
@@ -274,7 +281,7 @@ contains
 
   !---------------------------------------------------------------------!
 
-  subroutine DQMC_Hub_Init(Hub, U, t_up, t_dn, mu_up, mu_dn, L, n_t, n_U, n_mu, dtau, &
+  subroutine DQMC_Hub_Init(Hub, hamilt, U, t_up, t_dn, mu_up, mu_dn, L, n_t, n_U, n_mu, dtau, &
        HSF_IPT, nWarm, nPass, nMeas, nTry, nBin, ntausk, seed, nOrth, nWrap, fixw, &
        errrate, difflim, gamma, accept, reject, delta1, delta2, ssxx, HSFtype)
     !
@@ -301,6 +308,8 @@ contains
 #      include "sprng_f.h"
 #   endif
     type(Hubbard), intent(inout) :: Hub             ! Hubbard model
+    type(Hamiltonian_t), intent(inout) :: hamilt    ! use its Uv to determine site has -U or +U
+                                                    ! for mixed U project
     real(wp), intent(in)  :: U(:), t_up(:), t_dn(:) 
     real(wp), intent(in)  :: mu_up(:), mu_dn(:), dtau  ! Parameters
     integer,  intent(in)  :: L, n_t, n_U, n_mu
@@ -355,11 +364,18 @@ contains
        Hub%t_dn = t_dn
     end if
 
-    ! U parameter
+    ! U parameter for each unit cell
     Hub%n_U      = n_U
     allocate(Hub%U(n_U))
     Hub%U        = U
-     
+
+    ! U parameter for whole lattice
+    allocate(Hub%Usite(n))
+    do i = 1, n
+       Hub%Usite(i)  = hamilt%Uv(i-1,i-1) ! Uv in dqmc_hamilt is defined from 0 to n-1
+       write(*,*) "Hub%Usite = ", Hub%Usite(i)
+    enddo
+
     ! mu parameter
     Hub%n_mu     = n_mu
     allocate(Hub%mu_up(n_mu))
@@ -372,30 +388,8 @@ contains
        Map_dn(i) = mu_dn(Hub%S%Map(i))
     end do
 
-    Hub%comp_dn = .true.
-
-    if ( all(U.lt.ZERO+1.d-6) )then
-       !Negative U and U=0
-       Hub%neg_u = .true.
-       if( maxval(abs(t_up-t_dn))<1.d-6 .and. maxval(abs(mu_up-mu_dn))<1.d-6 ) then
-          !Gup and Gdn are identical. Do not compute Gdn.
-          Hub%comp_dn = .false.
-       endif
-    elseif ( all(U>ZERO-1.d-6))then
-       !Positive U 
-       Hub%neg_u   = .false.
-       if ( all(abs(mu_up) < 1.d-6) .and. all(abs(mu_dn) < 1.d-6) .and. &
-            maxval(abs(t_up-t_dn))<1.d-6 .and. Hub%S%checklist(STRUCT_PHASE) ) then
-          Hub%comp_dn = .false.
-       end if
-    else
-       stop 'All U''s must have the same sign (or be zero)'
-    end if
-
     !write(*,*)
     !write(*,*) "DEBUG info -- In DQMC_Hub_Init():"
-    !write(*,*) "  Hub%comp_dn=",Hub%comp_dn
-    !write(*,*) "  Hub%neg_u=",Hub%neg_u
     !write(*,*) "  S%P defined? ",Hub%S%checklist(STRUCT_PHASE)
     !write(*,*)
 
@@ -531,21 +525,12 @@ contains
     ! Initialize G
     call DQMC_GFun_Init(n, L, Hub%G_up, Hub%V_up,  Hub%WS, &
        nWrap, difflim, errrate, GMAT_UP, ssxx, fixw)
-
-    ! for positive U or H_dn/=H_up we need to construct G_dn implicitly
-    if (Hub%comp_dn .or. .not. Hub%neg_u) then
-       call DQMC_GFun_Init(n, L, Hub%G_dn, Hub%V_dn,  Hub%WS, &
+    call DQMC_GFun_Init(n, L, Hub%G_dn, Hub%V_dn,  Hub%WS, &
           nWrap, difflim, errrate, GMAT_DN, ssxx, fixw)
-    else
-       ! Negative U or U=0, G_dn is a clone of G_up
-       call DQMC_Gfun_Clone(Hub%G_dn, Hub%G_up)
-    end if
 
-    !Fill G
+    !Fill G, in dqmc_gfun.F90
     call DQMC_GetG(ilb, Hub%G_up, Hub%SB_up)
-    if (Hub%comp_dn .or. .not.Hub%neg_u) then
-       call DQMC_GetG(ilb, Hub%G_dn, Hub%SB_dn)
-    end if
+    call DQMC_GetG(ilb, Hub%G_dn, Hub%SB_dn)
 
     ! Initialize measurements
     temp = Hub%dtau * Hub%L
@@ -582,7 +567,7 @@ contains
     call DQMC_Phy2_Free(Hub%P2)
 
     if (associated(Hub%V_up)) deallocate(Hub%V_up)
-    if (.not.Hub%neg_u .and. associated(Hub%V_dn)) deallocate(Hub%V_dn)
+    if (associated(Hub%V_dn)) deallocate(Hub%V_dn)
     deallocate(Hub%t_up, Hub%t_dn, Hub%mu_up, Hub%mu_dn, Hub%U)
 
     if (Hub%HSFtype == HSF_DISC) then
@@ -1030,7 +1015,6 @@ contains
     integer,  pointer :: HSF(:,:)     
     integer,  pointer :: map(:)       
     real(wp)  :: gamma
-    logical   :: comp_dn, neg_u
 
     ! ... Executable ...
 
@@ -1056,8 +1040,6 @@ contains
     gamma = Hub%gamma
     explook => Hub%explook
     HSF     => Hub%HSF
-    comp_dn = Hub%comp_dn
-    neg_u   = Hub%neg_u
     map    => Hub%S%map
 
     n = Hub%n    
@@ -1078,17 +1060,13 @@ contains
        if (Hub%G_up%wps==Hub%G_up%nWrap) then
 
           if(nmeas0>0)then
-             ! Construct G_dn for mu = 0 and U > 0 using particle-hole symmetry
-             ! 05/15/2012, C.C.:
-             ! Note that ( .not.neg_u .and. not.comp_dn ) implies that S%P is defined, i.e.
-             ! S%checklist(STRUCT_PHASE) = 'T'.
-             if (.not.neg_u .and. .not.comp_dn) call DQMC_GFun_CopyUp(Hub%G_dn, Hub%G_up, Hub%S%P)
+             ! May.2015, MJ:
+             ! for mixed U lattice, in general no S%P is defined, i.e.
+             ! S%checklist(STRUCT_PHASE) = 'F'.
 
              !Fill GS in Hub%Gfun
              call DQMC_GetG_2nd_order(Hub%G_up, Hub%B_up)
-             if (comp_dn .or. .not.neg_u) then
-                call DQMC_GetG_2nd_order(Hub%G_dn, Hub%B_dn)
-             endif
+             call DQMC_GetG_2nd_order(Hub%G_dn, Hub%B_dn)
 
              ! Basic measurement
              call DQMC_Phy0_Meas(Hub%n, Hub%P0, Hub%G_up%GS, Hub%G_dn%GS, Hub%U, &
@@ -1113,11 +1091,7 @@ contains
        !==============================!
 
        call DQMC_GetG(i, Hub%G_up, Hub%SB_up)
-       if (comp_dn) then
-          call DQMC_GetG(i, Hub%G_dn, Hub%SB_dn)
-       else
-          sgn_dn = sgn_up
-       end if
+       call DQMC_GetG(i, Hub%G_dn, Hub%SB_dn)
 
        !==============================!
        ! Step 2: Metropolis Algorithm !
@@ -1128,7 +1102,8 @@ contains
           ! Try the new configuration by single spin-flip sampling 
           ! at site j at time slice i.
           ! See reference [1] for more detail for these formula
-          if (neg_u) then
+          !write(*,*) "Hub-sweep",Hub%Usite(j)
+          if (Hub%Usite(j)<=0) then
              alpha_up = explook(-2*HSF(j,i), map(j)) - ONE
              alpha_dn = alpha_up
           else
@@ -1137,21 +1112,14 @@ contains
           end if
 
           gjj = DQMC_Gfun_Getjj(n, j, blksz_up, G_up, U_up, W_up)
-
           r_up = ONE + (ONE - gjj)*alpha_up
 
-          if (comp_dn) then
-             gjj = DQMC_Gfun_Getjj(n, j, blksz_dn, G_dn, U_dn, W_dn)
-             r_dn = ONE + (ONE - gjj)*alpha_dn
-          elseif (neg_u) then
-             r_dn = r_up
-          else
-             r_dn = ONE + gjj*alpha_dn
-          end if
+          gjj = DQMC_Gfun_Getjj(n, j, blksz_dn, G_dn, U_dn, W_dn)
+          r_dn = ONE + (ONE - gjj)*alpha_dn
 
           r = abs(r_up * r_dn)
 
-          if (neg_u) then
+          if (Hub%Usite(j)<=0) then
              r = r * explook(+2*HSF(j, i), map(j))
           end if
 
@@ -1182,19 +1150,14 @@ contains
              Hub%G_up%nModify = i
              Hub%G_up%det = Hub%G_up%det - log(abs(r_up))
 
-             ! If mu .ne. zero, then update G_dn as well.
-             if (comp_dn) then
-                ! Update G_dn
-                call DQMC_UpdateG(j,  alpha_dn/r_dn, Hub%G_dn)
-                Hub%G_dn%det = Hub%G_dn%det - log(abs(r_dn))
-             end if
-             if (.not. neg_u) then
+             ! Update G_dn
+             call DQMC_UpdateG(j,  alpha_dn/r_dn, Hub%G_dn)
 #if defined(DQMC_ASQRD)
-                call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, i)
+             call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, i)
 #endif
-                V_dn(j,i) = V_dn(j,i) * (alpha_dn + ONE)
-             end if
+             V_dn(j,i) = V_dn(j,i) * (alpha_dn + ONE)
              Hub%G_dn%nModify = i
+             Hub%G_dn%det = Hub%G_dn%det - log(abs(r_dn))
 
           else 
              reject_cnt = reject_cnt + 1
@@ -1210,9 +1173,7 @@ contains
        ! update G_up/G_dn if there are some updates not applied.
 
        call DQMC_ApplyUpdate(Hub%G_up, forced = .true.)
-       if (comp_dn) then
-          call DQMC_ApplyUpdate(Hub%G_dn, forced = .true.)
-       end if
+       call DQMC_ApplyUpdate(Hub%G_dn, forced = .true.)
 
     end do
 
@@ -1246,10 +1207,8 @@ contains
     !every nwrap to ensure bins contains same number of measurements.
     if(nmeas0 <= 0) then
       call DQMC_UpdateWraps(Hub%G_up)
-      if (comp_dn) then
-         call DQMC_UpdateWraps(Hub%G_dn)
-         call DQMC_SyncWraps(Hub%G_up, Hub%G_dn)
-      end if
+      call DQMC_UpdateWraps(Hub%G_dn)
+      call DQMC_SyncWraps(Hub%G_up, Hub%G_dn)
     endif
     
 
@@ -1305,21 +1264,10 @@ contains
     Hub%G_up%ilb  = -1
     call DQMC_GetG(tslice, Hub%G_up, Hub%SB_up)
     det_up = Hub%G_up%det
-    if ( Hub%comp_dn ) then
-       Hub%G_dn%ilb  = -1
-       call DQMC_GetG(tslice, Hub%G_dn, Hub%SB_dn)
-       det_dn = Hub%G_dn%det
-    elseif ( Hub%neg_u ) then
-       det_dn = det_up
-       Hub%G_dn%sgn = Hub%G_up%sgn
-    else
-       ! 05/15/2012, C.C.:
-       ! Note that here we have .not.neg_u and not.comp_dn.
-       ! This implies that S%P is defined, i.e. S%checklist(STRUCT_PHASE) = 'T'.
-       ! So we can safely call DQMC_Gfun_CopyUp() which uses particle-hole symmetry.
-       call DQMC_Gfun_CopyUp(Hub%G_dn, Hub%G_up, Hub%S%P)
-       det_dn = Hub%G_dn%det
-    end if
+
+    Hub%G_dn%ilb  = -1
+    call DQMC_GetG(tslice, Hub%G_dn, Hub%SB_dn)
+    det_dn = Hub%G_dn%det
 
     ! get random numbers
     call ran0(numTry, ranList, Hub%seed)
@@ -1351,19 +1299,21 @@ contains
 #endif
           Hub%V_up(site(i),j) = Hub%explook( tmp, map(site(i)))
 
-          if (.not. Hub%neg_u) then
 #if defined(DQMC_ASQRD)
-             call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, j)
+          call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, j)
 #endif
+          !write(*,*) "Hub-sweep2",Hub%Usite(site(i))
+          if (Hub%Usite(site(i))<=0) then
+             Hub%V_dn(site(i),j) = Hub%V_up(site(i),j)
+          else
              Hub%V_dn(site(i),j) = Hub%explook(-tmp, map(site(i)))
-          end if
+          endif
        end do
        
        ! Store the value of G first
        Hub%G_up%tmp = Hub%G_up%G
-       if (Hub%comp_dn) then
-          Hub%G_dn%tmp = Hub%G_dn%G
-       end if
+       Hub%G_dn%tmp = Hub%G_dn%G
+
        copy_sgn_up = Hub%G_up%sgn
        copy_sgn_dn = Hub%G_dn%sgn
 
@@ -1371,28 +1321,17 @@ contains
        Hub%G_up%ilb  = -1
        call DQMC_GetG(tslice, Hub%G_up, Hub%SB_up)
        new_up = Hub%G_up%det
-       if ( Hub%comp_dn ) then
-          Hub%G_dn%ilb  = -1
-          call DQMC_GetG(tslice, Hub%G_dn, Hub%SB_dn)
-          new_dn = Hub%G_dn%det
-       elseif ( Hub%neg_u ) then
-          Hub%G_dn%sgn = Hub%G_up%sgn
-          new_dn = new_up
-       else
-          ! 05/15/2012, C.C.:
-          ! Note that here we have (.not.neg_u) and (.not.comp_dn).
-          ! This implies that S%P is defined, i.e. S%checklist(STRUCT_PHASE) = 'T'.
-          ! So we can safely call DQMC_Gfun_CopyUp() which uses particle-hole symmetry.
-          call DQMC_Gfun_CopyUp(Hub%G_dn, Hub%G_up, Hub%S%P)
-          new_dn = Hub%G_dn%det
-       end if
+
+       Hub%G_dn%ilb  = -1
+       call DQMC_GetG(tslice, Hub%G_dn, Hub%SB_dn)
+       new_dn = Hub%G_dn%det
 
        ! Compute the Det ratio
        ! NB: the determinant computed by GetG is log(abs(det(G)))
        !     Here we need log(abs(Z))= -log(abs(det(G)))
        rat = det_up + det_dn - new_up - new_dn
 
-       if (Hub%neg_u) then
+       if (Hub%Usite(site(i))<=0) then
           hs_sum=0
           do j = 1, L
              hs_sum = hs_sum + Hub%HSF(site(i), j)
@@ -1401,7 +1340,7 @@ contains
           ! extra factor for U<0: exp(2 * lambda * Sum(l, s_new(i, l)))
           rat = rat - 2*Hub%explook(0, map(site(i))) * hs_sum
        end if
-
+       
        if (rat > ZERO) then
           ratexp = ONE
        else
@@ -1418,35 +1357,34 @@ contains
           ! reject
           ! recover the old values
           Hub%G_up%G = Hub%G_up%tmp
-          if (Hub%comp_dn) then
-             Hub%G_dn%G = Hub%G_dn%tmp
-          end if
+          Hub%G_dn%G = Hub%G_dn%tmp
+
           Hub%G_up%sgn = copy_sgn_up
           Hub%G_dn%sgn = copy_sgn_dn
 
           do j = 1, L
-             tmp = -Hub%HSF(site(i),j)
+             tmp = -Hub%HSF(site(i),j) ! flip back to original HSF value
              Hub%HSF (site(i),j) = tmp
 #if defined(DQMC_ASQRD)
              call cpp_gfun_invalid_cache(Hub%G_up%cpp_data, j)
 #endif
              Hub%V_up(site(i),j) = Hub%explook( tmp, map(site(i)))
 
-             if (.not. Hub%neg_u) then
 #if defined(DQMC_ASQRD)
-                call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, j)
+             call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, j)
 #endif
+             if (Hub%Usite(site(i))<=0) then
+                Hub%V_dn(site(i),j) = Hub%V_up(site(i),j)
+             else
                 Hub%V_dn(site(i),j) = Hub%explook(-tmp, map(site(i)))
-             end if
+             endif
           end do
        end if
     end do
 
     !Update determinant value
     Hub%G_up%det = det_up
-    if (Hub%comp_dn) then
-       Hub%G_dn%det = det_dn
-    endif
+    Hub%G_dn%det = det_dn
 
     ! update G's counter
     Hub%G_up%wps = Hub%G_up%nWrap
@@ -1532,7 +1470,6 @@ contains
     real(wp), pointer :: lambda(:) 
     integer,  pointer :: map(:)    
     real(wp)  :: gamma, edx, delta,  dx, dE
-    logical   :: comp_dn
 
     ! ... Executable ...
 
@@ -1557,7 +1494,6 @@ contains
     ranlist => Hub%WS%R7
     gamma = Hub%gamma
     CHSF    => Hub%CHSF
-    comp_dn = Hub%comp_dn
     map     => Hub%S%map
 
 
@@ -1572,11 +1508,7 @@ contains
        ! Step 1: Swap the slice of G  !
        !==============================!
        call DQMC_GetG(i, Hub%G_up, Hub%SB_up)
-       if (comp_dn) then
-          call DQMC_GetG(i, Hub%G_dn, Hub%SB_dn)
-       else
-          sgn_dn = sgn_up
-       end if
+       call DQMC_GetG(i, Hub%G_dn, Hub%SB_dn)
 
        !==============================!
        ! Step 2: Metropolis Algorithm !
@@ -1596,14 +1528,11 @@ contains
           alpha_dn = ONE/edx - ONE
 
           gjj = DQMC_Gfun_Getjj(n, j, blksz_up, G_up, U_up, W_up)
-
           r_up = ONE + (ONE - gjj)*alpha_up
-          if (comp_dn) then
-             gjj = DQMC_Gfun_Getjj(n, j, blksz_dn, G_dn, U_dn, W_dn)
-             r_dn = ONE + (ONE - gjj)*alpha_dn
-          else
-             r_dn = ONE + gjj*alpha_dn
-          end if
+
+          gjj = DQMC_Gfun_Getjj(n, j, blksz_dn, G_dn, U_dn, W_dn)
+          r_dn = ONE + (ONE - gjj)*alpha_dn
+
 
           ! Computing the Gaussian
           ! dE = [(x+dx)^2-x^2]/2 = x*dx + dx*dx/2
@@ -1636,11 +1565,8 @@ contains
              V_up(j,i) = V_up(j,i) * (alpha_up + ONE)
              Hub%G_up%nModify = i
 
-             ! If mu .ne. zero, then update G_dn as well.
-             if (comp_dn) then
-                ! Update G_dn
-                call DQMC_UpdateG(j,  alpha_dn/r_dn, Hub%G_dn)
-             end if
+            ! Update G_dn
+            call DQMC_UpdateG(j,  alpha_dn/r_dn, Hub%G_dn)
 #if defined(DQMC_ASQRD)
              call cpp_gfun_invalid_cache(Hub%G_dn%cpp_data, i)
 #endif
@@ -1658,9 +1584,7 @@ contains
        ! update G_up/G_dn if there are some updates not applied.
       
        call DQMC_ApplyUpdate(Hub%G_up, forced = .true.)
-       if (comp_dn) then
-          call DQMC_ApplyUpdate(Hub%G_dn, forced = .true.)
-       end if
+       call DQMC_ApplyUpdate(Hub%G_dn, forced = .true.)
 
        ! update accept and reject counts
        Hub%naccept = Hub%naccept + accept_cnt
@@ -1668,16 +1592,6 @@ contains
 
        cnt = cnt - 1
        if (cnt == 0) then
-          ! construct G_dn for mu = 0
-          if (.not.Hub%neg_u .and. .not.Hub%comp_dn) then
-             do k = 1,n
-                do j = 1,n
-                   G_dn(k,j) = -Hub%S%P(k)*Hub%S%P(j)*G_up(j,k)
-                end do
-                G_dn(k,k) = G_dn(k,k) + ONE 
-             end do
-          end if
-          
           ! Basic measurement
           call DQMC_Phy0_Meas(Hub%n, Hub%P0, G_up, G_dn, &
                Hub%U, Hub%mu_up, Hub%mu_dn, Hub%t_up, Hub%t_dn, sgn_up, sgn_dn, Hub%S)
@@ -1747,8 +1661,7 @@ contains
     integer, pointer :: map(:) 
     integer  :: siteList(Hub%n), site(numTry), si, sj
     integer  :: slice(numTry)
-    real(wp), pointer :: CHSF(:,:) 
-    logical  :: compute_dn
+    real(wp), pointer :: CHSF(:,:)
     real(wp) :: G_dn_tmp(Hub%n,Hub%n)
 
     ! ... Executable ...
@@ -1760,7 +1673,6 @@ contains
     if (numTry .le. 0) return
     Map  => Hub%S%Map
     CHSF => Hub%CHSF
-    compute_dn = Hub%comp_dn .or. .not.Hub%neg_u
     
     ! Compute the Green's matrix and the sign
 #if defined(DQMC_ASQRD)
@@ -1771,19 +1683,15 @@ contains
     call DQMC_ComputeG(L, n, Hub%G_up%sgn, Hub%G_up%G, Hub%V_up, &
          Hub%SB_up, Hub%G_up%pvt, .true., det_up, HUb%G_up%sxx)
 #endif
-    if (compute_dn) then
+
 #if defined(DQMC_ASQRD)
-       call cpp_gfun_computeg(Hub%G_dn%cpp_data, L, Hub%G_dn%sgn, &
-            Hub%G_dn%G, Hub%V_dn, Hub%SB_dn%B%B, &
-	    Hub%SB_dn%nOrth, det_dn)
+    call cpp_gfun_computeg(Hub%G_dn%cpp_data, L, Hub%G_dn%sgn, &
+        Hub%G_dn%G, Hub%V_dn, Hub%SB_dn%B%B, &
+    Hub%SB_dn%nOrth, det_dn)
 #else
-       call DQMC_ComputeG(L, n, Hub%G_dn%sgn, Hub%G_dn%G, Hub%V_dn, &
-            Hub%SB_dn, Hub%G_dn%pvt, .true., det_dn, Hub%G_dn%sxx)
+    call DQMC_ComputeG(L, n, Hub%G_dn%sgn, Hub%G_dn%G, Hub%V_dn, &
+        Hub%SB_dn, Hub%G_dn%pvt, .true., det_dn, Hub%G_dn%sxx)
 #endif
-    else
-       det_dn = det_up
-       Hub%G_dn%sgn = Hub%G_up%sgn
-    end if
 
     ! get random numbers
     call ran0(2*numTry, ranList, Hub%seed)
@@ -1835,9 +1743,8 @@ contains
        
        ! Store the value of G first
        Hub%G_up%tmp = Hub%G_up%G
-       if (compute_dn) then
-          G_dn_tmp = Hub%G_dn%G
-       end if
+       G_dn_tmp = Hub%G_dn%G
+
        copy_sgn_up = Hub%G_up%sgn
        copy_sgn_dn = Hub%G_dn%sgn
 
@@ -1850,19 +1757,15 @@ contains
        call DQMC_ComputeG(L, n, Hub%G_up%sgn, Hub%G_up%G, Hub%V_up, &
             Hub%SB_up, Hub%G_up%pvt, .true., new_up, Hub%G_up%sxx)
 #endif
-       if (compute_dn) then
+
 #if defined(DQMC_ASQRD)
-          call cpp_gfun_computeg(Hub%G_up%cpp_data, L, n, &
-	       Hub%G_dn%sgn, Hub%G_dn%G, Hub%V_dn, Hub%SB_dn%B%B, &
-	       Hub%SB_dn%L, Hub%SB_dn%nOrth, new_dn)
+        call cpp_gfun_computeg(Hub%G_up%cpp_data, L, n, &
+        Hub%G_dn%sgn, Hub%G_dn%G, Hub%V_dn, Hub%SB_dn%B%B, &
+        Hub%SB_dn%L, Hub%SB_dn%nOrth, new_dn)
 #else
-          call DQMC_ComputeG(L, n, Hub%G_dn%sgn, Hub%G_dn%G, Hub%V_dn, &
-               Hub%SB_dn, Hub%G_dn%pvt, .true., new_dn, Hub%G_up%sxx)
+        call DQMC_ComputeG(L, n, Hub%G_dn%sgn, Hub%G_dn%G, Hub%V_dn, &
+            Hub%SB_dn, Hub%G_dn%pvt, .true., new_dn, Hub%G_up%sxx)
 #endif
-       else
-          new_dn = new_up
-          Hub%G_dn%sgn =  Hub%G_up%sgn
-       end if
 
        ! Compute the Det ratio
        ! rat = abs((det_up*det_dn)/(new_up*new_dn)) 
@@ -1890,9 +1793,8 @@ contains
           ! reject
           ! recover the old values
           Hub%G_up%G = Hub%G_up%tmp
-          if (compute_dn) then
-             Hub%G_dn%G = G_dn_tmp
-          end if
+          Hub%G_dn%G = G_dn_tmp
+
           Hub%G_up%sgn = copy_sgn_up
           Hub%G_dn%sgn = copy_sgn_dn
 
@@ -2008,11 +1910,8 @@ contains
      
      !Duplicate the Green's function 
      call DQMC_Gfun_Duplicate(G_up_local, Hub%G_up)
-     if (.not.Hub%neg_u .or. Hub%comp_dn) then
-        call DQMC_Gfun_Duplicate(G_dn_local, Hub%G_dn)
-     else
-        call DQMC_Gfun_clone(G_dn_local, G_up_local)
-     endif
+     call DQMC_Gfun_Duplicate(G_dn_local, Hub%G_dn)
+
      G_up   => G_up_local%G
      G_dn   => G_dn_local%G
 
@@ -2025,39 +1924,10 @@ contains
         i = it*Hub%n + 1 
         j = i + Hub%n - 1
         G_up = A_up(i:j, i:j)
-
-        ! 05/15/2012, C.C.
-        ! Modified in order to take into account U < 0 model on non-bipartite lattices.
-        ! Before the modification, the code calls DQMC_Gfun_CopyUp() which assumes bipartite lattice.
-        ! This causes segmentation fault on, for example, triagular lattices which lacks particle-hole
-        ! symmetry. As a result, S%P is not defined. We fix it by separating U < 0 model from the rest
-        ! of the if-else statements, and calling calling DQMC_Gfun_clone().
-        if ( Hub%comp_dn ) then
-           ! Get G_dn directly when :
-           !     1) U > 0, mu_up .neq. 0, or mu_dn .neq. 0. 
-           !     2) U > 0, mu_up = mu_dn = 0, but "PHASE" S%P is not defined. E.g. non-bipartite lattice or S%P is simply lacking.
-           !     3) U > 0, mu_up = mu_dn = 0, but t_up .neq. t_dn.
-           !     4) U < 0, but mu_up .neq. mu_dn, or t_up .neq. t_dn.
-           !     5) U = 0, but mu_up .neq. mu_dn, or t_up .neq. t_dn.
-           G_dn = A_dn(i:j, i:j)
-        else if ( Hub%neg_u ) then
-           ! G_dn and G_up are identical when :
-           !     1) U < 0, mu_up = mu_dn, and t_up = t_dn
-           !     2) U = 0, mu_up = mu_dn, and t_up = t_dn
-           call DQMC_Gfun_Clone(G_dn_local, G_up_local)
-        else 
-           ! Note that here we are left with the last condition: (.not.neg_u) and (.not.comp_dn).
-           ! This implies that S%P is defined, i.e. S%checklist(STRUCT_PHASE) = 'T'.
-           ! So we can safely call DQMC_Gfun_CopyUp() which uses particle-hole symmetry.
-           ! Use particle-hole symmetry to get G_dn when :
-           !     1) U > 0, at half-filling, t_up = t_dn, and "PHASE" S%P is defined.
-           call DQMC_Gfun_CopyUp(G_dn_local, G_up_local, Hub%S%P)
-        endif
+        G_dn = A_dn(i:j, i:j)
 
         call DQMC_GetG_2nd_order(G_up_local, Hub%B_up)
-        if (Hub%comp_dn .or. .not.Hub%neg_u) then
-           call DQMC_GetG_2nd_order(G_dn_local, Hub%B_dn)
-        endif
+        call DQMC_GetG_2nd_order(G_dn_local, Hub%B_dn)
 
         call DQMC_Phy0_Meas(Hub%n, Hub%P0, G_up_local%GS, G_dn_local%GS, Hub%U, &
            Hub%mu_up, Hub%mu_up, Hub%t_up, Hub%t_dn, sgn_up, sgn_dn, Hub%S)
@@ -2102,12 +1972,8 @@ contains
  
      !Duplicate the Green's function
      call DQMC_Gfun_Duplicate(G_up_local, Hub%G_up)
-   
-     if (.not.Hub%neg_u .or. Hub%comp_dn) then
-        call DQMC_Gfun_Duplicate(G_dn_local, Hub%G_dn)
-     else
-        call DQMC_Gfun_clone(G_dn_local, G_up_local)
-     endif
+     call DQMC_Gfun_Duplicate(G_dn_local, Hub%G_dn)
+
      G_up   => G_up_local%G
      G_dn   => G_dn_local%G
      sgn_up => G_up_local%sgn
@@ -2116,24 +1982,12 @@ contains
      !Recompute G from scratch
      G_up_local%ilb = -1       
      call DQMC_GetG(slice, G_up_local, Hub%SB_up)
-     if ( Hub%comp_dn ) then
-        G_dn_local%ilb = -1       
-        call DQMC_GetG(slice, G_dn_local, Hub%SB_dn)
-     elseif ( Hub%neg_u ) then
-        sgn_dn = sgn_up
-     else
-        ! 05/15/2012, C.C.:
-        ! Note that here we have (.not.neg_u) and (.not.comp_dn).
-        ! This implies that S%P is defined, i.e. S%checklist(STRUCT_PHASE) = 'T'.
-        ! So we can safely call DQMC_Gfun_CopyUp() which uses particle-hole symmetry.
-        call DQMC_Gfun_CopyUp(G_dn_local, G_up_local, Hub%S%P)
-     endif
+     G_dn_local%ilb = -1
+     call DQMC_GetG(slice, G_dn_local, Hub%SB_dn)
 
      !Get G correct to 2nd order
      call DQMC_GetG_2nd_order(G_up_local, Hub%B_up)
-     if (Hub%comp_dn .or. .not.Hub%neg_u) then
-        call DQMC_GetG_2nd_order(G_dn_local, Hub%B_dn)
-     endif
+     call DQMC_GetG_2nd_order(G_dn_local, Hub%B_dn)
      
      ! Basic measurement
      call DQMC_Phy0_Meas(Hub%n, Hub%P0, G_up_local%GS, G_dn_local%GS, Hub%U, &
@@ -2153,6 +2007,9 @@ contains
   !-------------------------------------------------------------------!
 
   subroutine DQMC_Hub_Init_Vmat(Hub)
+    ! Apr.29/2015: modified by MJ
+    ! modify this routine to be able to deal with -U and +U sites simultaneously
+    ! always need to compute V_dn
     !
     ! Purpose
     ! =======
@@ -2188,38 +2045,29 @@ contains
        allocate(Hub%V_up(Hub%n,Hub%L))
      end if
 
+     ! Apr.29/2015: Added by MJ (see above)
+     if (.not.associated(Hub%V_dn)) then
+        allocate(Hub%V_dn(Hub%n,Hub%L))
+     endif
+     if (size(Hub%V_dn) .ne. Hub%n*Hub%L) then
+       allocate(Hub%V_dn(Hub%n,Hub%L))
+     end if
+
      if (Hub%HSFtype == HSF_DISC) then
 
         ! discrete case
         do i = 1, Hub%L
            do j = 1, Hub%n
               Hub%V_up(j,i) = Hub%explook(Hub%HSF(j,i), Hub%S%map(j))
+              ! determine -U or U for site j to set V_dn
+             ! write(*,*) "Vmax",Hub%Usite(j)
+              if (Hub%Usite(j)<=0) then
+                 Hub%V_dn(j,i) = Hub%V_up(j,i)
+              else
+                 Hub%V_dn(j,i) = Hub%explook(-Hub%HSF(j,i), Hub%S%map(j))
+              endif
            end do
         end do
-        
-        if (Hub%neg_u) then
-           if (.not.associated(Hub%V_dn)) then
-              Hub%V_dn => Hub%V_up
-           endif
-        else
-           if (.not.associated(Hub%V_dn)) then
-              allocate(Hub%V_dn(Hub%n,Hub%L))
-           endif
-           ! 05/10/2012: Added by C.C.
-           ! This fix is required to make test program in /EXAMPLE/test work.
-           ! Without the fix, the array size of Hub%V_up and Hub%V_dn would be 1 rather then n * L.
-           ! This causes segmentation fault when running the test program. I'm not clear why this 
-           ! happens ONLY to test, but not, say, verify and gggeom.
-           if (size(Hub%V_dn) .ne. Hub%n*Hub%L) then
-             allocate(Hub%V_dn(Hub%n,Hub%L))
-           end if
-
-           do i = 1, Hub%L
-              do j = 1, Hub%n
-                 Hub%V_dn(j,i) = Hub%explook(-Hub%HSF(j,i), Hub%S%map(j))
-              end do
-           end do
-        end if
      else
         ! continuous case
         do i = 1, Hub%L
@@ -2228,32 +2076,13 @@ contains
               Hub%V_up(j,i) = exp(Hub%lambda(Hub%S%map(j))*temp)
            end do
         end do
-        
-        if (Hub%neg_u) then
-           if (.not.associated(Hub%V_dn)) then
-              Hub%V_dn => Hub%V_up
-           endif
-        else
-           if (.not.associated(Hub%V_dn)) then
-              allocate(Hub%V_dn(Hub%n,Hub%L))
-           endif
-           ! 05/10/2012: Added by C.C.
-           ! This fix is required to make test program in /EXAMPLE/test work.
-           ! Without the fix, the array size of Hub%V_up and Hub%V_dn would be 1 rather then n * L.
-           ! This causes segmentation fault when running the test program. I'm not clear why this 
-           ! happens ONLY to test, but not, say, verify and gggeom.
-           if (size(Hub%V_dn) .ne. Hub%n*Hub%L) then
-             allocate(Hub%V_dn(Hub%n,Hub%L))
-           end if
 
-           do i = 1, Hub%L
-              do j = 1, Hub%n
-                 temp = Hub%CHSF(j,i)
-                 Hub%V_dn(j,i) = exp(-Hub%lambda(Hub%S%map(j))*temp)
-              end do
-           end do
-        end if
- 
+        do i = 1, Hub%L
+            do j = 1, Hub%n
+               temp = Hub%CHSF(j,i)
+               Hub%V_dn(j,i) = exp(-Hub%lambda(Hub%S%map(j))*temp)
+            end do
+        end do
      end if
 
   end subroutine DQMC_Hub_Init_Vmat

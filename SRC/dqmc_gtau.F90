@@ -1,3 +1,9 @@
+! May/2015: modify to study the cases of mixed -U and +U sites lattice
+! modifications:
+! 1. delete neg_u variable
+! 2. always compute G_dn, delete variable comp_dn
+! 3. delete if loop in DQMC_Gtau_LoadA
+
 module DQMC_GTAU
 #include "dqmc_include.h"
 
@@ -9,7 +15,10 @@ module DQMC_GTAU
 
   implicit none 
   
-  !
+  ! Apr.2015: modified by MJ to be able to study both -U and +U sites
+  ! modify every line related to neg_u variable, which treats the whole lattice
+  ! if U < 0
+
   ! This module is designed for the computation of time dependent 
   ! measurement (TDM), which requires the unequal time Green's 
   ! function Gup_tau (Gdn_tau).
@@ -75,11 +84,7 @@ module DQMC_GTAU
      real(wp), pointer   :: V_dn(:,:) 
  
      ! Pointers to phase
-     real(wp), pointer   :: P(:) 
-
-     ! Control variables for dn computation
-     logical :: comp_dn
-     logical :: neg_u
+     real(wp), pointer   :: P(:)
     
      ! Signs
      real(wp), pointer   :: sgnup 
@@ -144,8 +149,6 @@ contains
     tau%L       = Hub%L
     tau%north   = Hub%SB_up%north
     tau%nb      = Hub%L / tau%north
-    tau%comp_dn = Hub%comp_dn
-    tau%neg_u   = Hub%neg_u
 
     if (mod(tau%L,tau%north) /= 0) &
        call dqmc_error("L must be an exact multiple of north. Stop.",1)
@@ -161,30 +164,17 @@ contains
     allocate(tau%up00(n, n))
     allocate(tau%uptt(n, n))
     allocate(tau%A_up(nnb, nnb))
-    if (tau%comp_dn .or. .not.tau%neg_u) then
-       allocate(tau%dnt0(n, n))
-       allocate(tau%dn0t(n, n))
-       allocate(tau%dn00(n, n))
-       allocate(tau%dntt(n, n))
-       allocate(tau%A_dn(nnb, nnb))
-    else
-       tau%dnt0    => tau%upt0
-       tau%dn0t    => tau%up0t
-       tau%dn00    => tau%up00
-       tau%dntt    => tau%uptt
-       tau%A_dn    => tau%A_up
-    endif
 
-    ! sgn and itaus are identical when .not.comp_dn
+    allocate(tau%dnt0(n, n))
+    allocate(tau%dn0t(n, n))
+    allocate(tau%dn00(n, n))
+    allocate(tau%dntt(n, n))
+    allocate(tau%A_dn(nnb, nnb))
+
     allocate(tau%sgnup)
     allocate(tau%itau_up(tau%nb))
-    if (tau%comp_dn) then
-       allocate(tau%sgndn)
-       allocate(tau%itau_dn(tau%nb))
-    else
-       tau%sgndn   => tau%sgnup
-       tau%itau_dn => tau%itau_up
-    endif
+    allocate(tau%sgndn)
+    allocate(tau%itau_dn(tau%nb))
 
     tau%B_up => Hub%B_up
     tau%B_dn => Hub%B_dn
@@ -281,8 +271,6 @@ contains
     L     = tau%L
     isl   = mod(slice-1,nor)+1
 
-    if (spin==TAU_UP .or. tau%comp_dn) then
-
        call dqmc_gtau_setAlias(spin, tau, A=A, V=V, B=B, sgn=s, itau=t)
        ! making A
        A = ZERO
@@ -317,32 +305,7 @@ contains
        enddo
        call lapack_dgetri(nnb, A, nnb, tau%IW, tau%W1, tau%lw, info)
 
-    elseif (.not.tau%neg_u) then
-
-       ! Use p-h symmetry to fill A_dn
-       s => tau%sgndn
-       do i = 0, nb - 1
-          do j = 0, nb - 1
-             gtau1  => tau%A_up(i * n + 1: (i + 1) * n, j * n + 1:(j + 1) * n)
-             gtau2 => tau%A_dn(j * n + 1: (j + 1) * n, i * n + 1:(i + 1) * n)
-             do h = 1, n
-                do k = 1, n
-                   gtau2(h,k) = -tau%P(k) * tau%P(h) * gtau1(k,h)
-                enddo
-             enddo
-          enddo
-       enddo
-       ! Equal time, equal site entries need correction
-       do i = 1, nnb
-          tau%A_dn(i,i) = tau%A_dn(i,i) + ONE
-       enddo
-
-    else
-       ! Negative U case with identical non-interacting parts
-       s => tau%sgndn
-    endif
-
-    sgn = s
+      sgn = s
 
   end subroutine DQMC_Gtau_LoadA
 
@@ -351,8 +314,8 @@ contains
   subroutine DQMC_Gtau_CopyUp(tau)
     !
     ! Load content of A in upt0, up0t, dnt0 and dn0t.
-    ! Equal time upt0=G_up(t+,t), up0t=G_up(t,t+) 
-    ! 
+    ! Equal time upt0=G_up(t+,t), up0t=G_up(t,t+)
+    !
     type(Gtau), intent(inout) :: tau
 
     integer :: h, k
@@ -1213,7 +1176,7 @@ contains
 
     if (spin == TAU_DN .or. spin == 0) then
        g = tau%e0dn**slice / (1.0_wp + tau%e0dn**L)
-       call dcopy(n * n, tau%U0dn(:, 1), 1, tau%W2(:, 1), 1)
+       call dcopy(n*n, tau%U0dn(:,1), 1, tau%W2(:,1), 1)
        call dqmc_scaleCol(n, tau%W2, g)
        call dgemm('N','C', n, n, n, alpha, tau%W2, n, tau%U0dn, n, beta, g0tau, n)
     endif

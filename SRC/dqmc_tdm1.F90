@@ -385,8 +385,7 @@ contains
 
           ! Stored value
           call DQMC_Gtau_DumpA(tau, TAU_UP, it, i0)
-          if (tau%comp_dn .or. .not.tau%neg_u) &
-             call DQMC_Gtau_DumpA(tau, TAU_DN, it, i0)
+          call DQMC_Gtau_DumpA(tau, TAU_DN, it, i0)
           
           jt = tau%it_up; j0 = tau%i0_up
           call DQMC_TDM1_Compute(T1, upt0, up0t, dnt0, dn0t, up00, uptt, dn00, dntt, jt, j0)
@@ -394,11 +393,7 @@ contains
           ! Decrement index tau%it. If north is even do only north/2-1 decrements.
           do dt = 1, m-1+k
              call DQMC_change_gtau_time(tau, TPLUS, TAU_UP)
-             if (tau%comp_dn) then
-                call DQMC_change_gtau_time(tau, TPLUS, TAU_DN)
-             elseif (.not.tau%neg_u) then
-                call DQMC_Gtau_CopyUp(tau)
-             endif
+             call DQMC_change_gtau_time(tau, TPLUS, TAU_DN)
 
              jt = tau%it_up; j0 = tau%i0_up
              call DQMC_TDM1_Compute(T1, upt0, up0t, dnt0, dn0t, up00, uptt, dn00, dntt, jt, j0)
@@ -406,22 +401,18 @@ contains
 
           if (m .gt. 0) then
              call DQMC_Gtau_DumpA(tau, TAU_UP, it, i0)
-             if (tau%comp_dn .or. .not.tau%neg_u) &
-                call DQMC_Gtau_DumpA(tau, TAU_DN, it, i0)
+             call DQMC_Gtau_DumpA(tau, TAU_DN, it, i0)
           endif
+
           ! Increment index tau%it
           do dt = 1, m
              call DQMC_change_gtau_time(tau, TMINUS, TAU_UP)
-             if (tau%comp_dn) then
-                call DQMC_change_gtau_time(tau, TMINUS, TAU_DN)
-             elseif (.not.tau%neg_u) then
-                call DQMC_Gtau_CopyUp(tau)
-             endif
+             call DQMC_change_gtau_time(tau, TMINUS, TAU_DN)
+
              jt = tau%it_up; j0 = tau%i0_up
              call DQMC_TDM1_Compute(T1, upt0, up0t, dnt0, dn0t, up00, uptt, dn00, dntt, jt, j0)
                 
           enddo
-
        enddo
 
        cnt = cnt + 1

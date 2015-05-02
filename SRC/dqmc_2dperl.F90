@@ -4,6 +4,7 @@ module DQMC_2DPERL
   use DQMC_CFG
   use DQMC_STRUCT
   use DQMC_HUBBARD
+  use DQMC_HAMILT
   ! Chia-Chen: 09/06/2011
   ! added in order to access the number of processors
   use DQMC_MPI
@@ -44,6 +45,7 @@ contains
     ! ... Local scalar ...
     type(config)  :: cfg
     type(Hubbard) :: Hub          ! Hubbard model
+    type(Hamiltonian_t) :: hamilt
     integer       :: nx, ny
 
     integer       :: i, j, k, nBin, nIter, slice
@@ -64,7 +66,7 @@ contains
     call CFG_Get(cfg, "ofile", ofile)   ! output file name
 
     ! Initialize the Hubbard data structure
-    call DQMC_Hub_Config(Hub, cfg)
+    call DQMC_Hub_Config(Hub, cfg, hamilt)
 
     ! Execution MC loop
     ! Warmup sweep
