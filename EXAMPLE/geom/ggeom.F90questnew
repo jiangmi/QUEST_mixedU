@@ -1,0 +1,207 @@
+program dqmc_ggeom
+
+  use DQMC_Cfg
+  use DQMC_Geom_Wrap
+  use DQMC_Hubbard
+  use dqmc_mpi
+  use dqmc_tdm1
+
+  implicit none
+
+  real                :: t1, t2
+  type(config)        :: cfg
+  type(Hubbard)       :: Hub
+  type(GeomWrap)      :: Gwrap
+  type(tdm1)          :: tm
+  type(Gtau)          :: tau
+  character(len=slen) :: gfile
+  logical             :: tformat
+  integer             :: na, nt, nkt, nkg, i, j, k, slice, nhist
+  integer             :: nbin, nIter, ntausk
+  integer             :: comp_tdm, symmetries_output_file_unit
+  integer             :: FLD_UNIT, TDM_UNIT,&
+                         OPT1,OPT2,OPT3,OPT4,OPT5,OPT6,OPT7,OPT8,OPT9,OPT10,OPT11
+
+  call cpu_time(t1)  
+
+  !Count the number of processors
+  call DQMC_MPI_Init(qmc_sim, PLEVEL_1)
+  
+  !Read input (IPT unit)
+  call DQMC_Read_Config(cfg)
+   
+  !Determine type of geometry file
+  call CFG_Get(cfg, "gfile", gfile)
+  call DQMC_Geom_Read_Def(Hub%S, gfile, tformat)
+  if (.not.tformat) then
+     !If free format fill gwrap
+     call DQMC_Geom_Fill(Gwrap, gfile, cfg, symmetries_output_file_unit)
+     !Transfer info in Hub%S
+     call DQMC_Geom_Init(Gwrap, Hub%S, cfg)
+  endif
+
+  ! Open Fields file
+  call CFG_Get(cfg, "nhist",  nhist)
+  if (nhist > 0) &
+     call DQMC_open_file(adjustl(trim(gfile))//'.HSF.stream','unknown', FLD_UNIT)
+
+  ! Initialize the rest of the data
+  call DQMC_Hub_Config(Hub, cfg)
+ 
+  ! Initialize time dependent properties if comp_tdm .gt. 0
+  call CFG_Get(cfg, "tdm", comp_tdm)
+  if (comp_tdm .gt. 0) then
+     call DQMC_Gtau_Init(Hub, tau)
+     call DQMC_open_file(adjustl(trim(gfile))//'.tdm.out','unknown', TDM_UNIT)
+     call DQMC_TDM1_Init(Hub%L, Hub%dtau, tm, Hub%P0%nbin, Hub%S, Gwrap) 
+  endif
+
+  ! Warmup sweep
+  do i = 1, Hub%nWarm
+     ! The second parameter means no measurement should be made
+     call DQMC_Hub_Sweep(Hub, NO_MEAS0)
+     call DQMC_Hub_Sweep2(Hub, Hub%nTry)
+  end do
+
+  ! Measurement loop control variables
+  call CFG_Get(cfg, "tausk", ntausk)
+
+  ! We divide all the measurement into nBin,
+  ! each having nPass/nBin pass.
+  nBin   = Hub%P0%nBin
+  nIter  =  Hub%nPass / nBin / ntausk
+  if (nIter > 0) then
+     do i = 1, nBin
+        do j = 1, nIter
+           ! Perform ntausk sweep between measurement
+           do k = 1, ntausk
+              call DQMC_Hub_Sweep(Hub, Hub%nMeas)
+              call DQMC_Hub_Sweep2(Hub, Hub%nTry)
+           enddo
+           if (comp_tdm .gt. 0) then
+              ! Generate a random time slice 
+              slice = intran(Hub%L, Hub%seed)
+              ! Compute full Green's function 
+              call DQMC_Gtau_LoadA(tau, TAU_UP, slice, Hub%G_up%sgn)
+              call DQMC_Gtau_LoadA(tau, TAU_DN, slice, Hub%G_dn%sgn)
+              ! Measure equal-time properties
+              call DQMC_Hub_FullMeas(Hub, tau%nnb, tau%A_up, tau%A_dn, tau%sgnup, tau%sgndn)
+              ! Measure time-dependent properties
+              call DQMC_TDM1_Meas(tm, tau)
+           endif
+           ! Write fields to disc
+           if (nhist .gt. 0) call DQMC_Hub_Output_HSF(Hub, .false., slice, FLD_UNIT)
+           write(*,*)"Meas #",(i-1)*nIter + j
+        end do
+        ! Accumulate results for each bin
+        call DQMC_Phy0_Avg(Hub%P0)
+        call DQMC_tdm1_Avg(tm)
+     end do !bins
+  endif
+
+  !Read configurations from file if no sweep was perfomed
+  if (Hub%nWarm + Hub%nPass .eq. 0) then
+     Hub%nmeas = -1
+     call DQMC_count_records(Hub%npass, FLD_UNIT)
+     nIter = Hub%npass / nbin
+     do i = 1, nBin
+        do j = 1, nIter / qmc_sim%aggr_size
+           call DQMC_Hub_Input_HSF(Hub, .false., slice, FLD_UNIT)
+           call DQMC_Hub_Init_Vmat(Hub)
+           if (comp_tdm .gt. 0) then
+              ! Compute full Green's function - if fullg is on -
+              call DQMC_Gtau_LoadA(tau, TAU_UP, slice, Hub%G_up%sgn)
+              call DQMC_Gtau_LoadA(tau, TAU_DN, slice, Hub%G_dn%sgn)
+              ! Measure equal-time properties. Pass gtau in case fullg was computed.
+              call DQMC_Hub_FullMeas(Hub, tau%nb, &
+                 tau%A_up, tau%A_dn, tau%sgnup, tau%sgndn)
+              ! Measure time-dependent properties. Reuses fullg when possible. 
+              call DQMC_TDM1_Meas(tm, tau)
+           else
+              call DQMC_Hub_Meas(Hub, slice)
+           endif
+        enddo
+        call DQMC_Phy0_Avg(Hub%P0)
+        call DQMC_TDM1_Avg(tm)
+     enddo !bins
+  endif
+
+  !Compute average and error
+  call DQMC_Phy0_GetErr(Hub%P0)
+  call DQMC_TDM1_GetErr(tm)
+
+  ! Print computed results
+  call DQMC_Hub_OutputParam(Hub, Hub%OUT_UNIT)
+  call DQMC_Phy0_Print(Hub%P0, Hub%S, Hub%OUT_UNIT)
+  call DQMC_TDM1_Print(tm, TDM_UNIT)
+  
+  ! ========================= Separate PRINT ========================
+  ! equal time measurements:
+  call DQMC_open_file('Gfun','replace', OPT1)
+  call DQMC_open_file('nn_corre','replace', OPT2)
+  call DQMC_open_file('spin_corre','replace', OPT3)
+  call DQMC_open_file('Pair_corre','replace', OPT4)
+  call DQMC_open_file('localGup','replace', OPT5)
+  call DQMC_open_file('localGdn','replace', OPT6)
+  call DQMC_Phy0_Print1(Hub%P0, Hub%S, OPT1, OPT2, OPT3, OPT4, OPT5, OPT6)
+
+  ! unequal time measurements:
+  call DQMC_open_file('Chi','replace', OPT7)
+
+  ! both SPXX (for 1/T1T) and SPZZ (to average with SPXX for accuracy)
+  call DQMC_open_file('Spintau','replace', OPT8)
+
+  ! G(tau) for conduction electron and f electron seperately
+  call DQMC_open_file('Gtauc','replace', OPT9)
+  call DQMC_open_file('Gtauf','replace', OPT10)
+
+  ! prints out all useful results:
+  ! first Chi_cc, Chi_cf, Chi_ff
+  ! then S+S-(beta/2) for cc, cf, ff
+  call DQMC_open_file('results','replace', OPT11)
+
+  call DQMC_TDM1_Chi_Print(tm, OPT7, OPT11)
+  call DQMC_TDM1_Print1(tm, OPT8, OPT9, OPT10, OPT11)
+  ! =================================================================
+
+  na  = Gwrap%lattice%natom
+  nt  = Gwrap%lattice%ncell
+  nkt = Gwrap%RecipLattice%nclass_k
+  nkg = Gwrap%GammaLattice%nclass_k
+
+  !Print info on k-points and construct clabel
+!  call DQMC_Print_HeaderFT(Gwrap, Hub%OUT_UNIT, .true.)
+!  call DQMC_Print_HeaderFT(Gwrap, Hub%OUT_UNIT, .false.)
+
+  !Compute Fourier transform
+!  call DQMC_phy0_GetFT(Hub%P0, Hub%S%D, Hub%S%gf_phase, Gwrap%RecipLattice%FourierC, &
+!       Gwrap%GammaLattice%FourierC, nkt, nkg, na, nt)
+!  call DQMC_Phy0_GetErrFt(Hub%P0)
+!  call DQMC_Phy0_PrintFT(Hub%P0, na, nkt, nkg, Hub%OUT_UNIT)
+
+  !Compute Fourier transform and error for TDM's
+!  call DQMC_TDM1_GetKFT(tm)
+!  call DQMC_TDM1_GetErrKFT(tm)
+!  call DQMC_TDM1_PrintKFT(tm, TDM_UNIT)
+
+  !Compute and print the self-energy
+!  call DQMC_TDM1_SelfEnergy(tm, tau, TDM_UNIT)
+  
+  ! Clean up the used storage
+  call DQMC_TDM1_Free(tm)
+  call DQMC_Hub_Free(Hub)
+  call DQMC_Config_Free(cfg)
+  
+  call cpu_time(t2)
+  call DQMC_MPI_Final(qmc_sim)
+  write(STDOUT,*) "Running time:",  t2-t1, "(second)"
+  write(STDOUT,*) "Running time:",  (t2-t1)/60, "(minutes)"
+  write(STDOUT,*) "Running time:",  (t2-t1)/3600, "(hours)"
+  write(STDOUT,*) "Running time:",  (t2-t1)/3600/24, "(days)"
+
+  write(Hub%OUT_UNIT,*) "Running time:",  t2-t1, "(second)"
+  write(Hub%OUT_UNIT,*) "Running time:",  (t2-t1)/60, "(minutes)"
+  write(Hub%OUT_UNIT,*) "Running time:",  (t2-t1)/3600, "(hours)"
+  write(Hub%OUT_UNIT,*) "Running time:",  (t2-t1)/3600/24, "(days)"
+
+end program dqmc_ggeom

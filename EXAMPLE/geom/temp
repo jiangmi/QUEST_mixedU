@@ -1,0 +1,251 @@
+ Detected Geometry Free Format.
+ ================================================================
+ Basic real space geometry info
+
+ Crystal atomic basis
+  0     0.0000000     0.0000000     0.0000000
+
+ Basis cell vectors
+     1.0000000     0.0000000     0.0000000
+     0.0000000     1.0000000     0.0000000
+     0.0000000     0.0000000  1000.0000000
+
+
+ Supercell vectors (fractionary unit)
+    4    0    0
+    0    4    0
+    0    0    1
+
+ Super-Lattice vectors (cartesian)
+     4.0000000     0.0000000     0.0000000
+     0.0000000     4.0000000     0.0000000
+     0.0000000     0.0000000  1000.0000000
+
+ ================================================================
+ Real space lattice
+
+ Number of orbitals in primitive cell:            1
+ Total number of orbitals:                       16
+ index  label   type       X           Y         Z   
+  0 s0    0       0.00000       0.00000       0.00000
+  1 s0    0       1.00000       0.00000       0.00000
+  2 s0    0       2.00000       0.00000       0.00000
+  3 s0    0       3.00000       0.00000       0.00000
+  4 s0    0       0.00000       1.00000       0.00000
+  5 s0    0       1.00000       1.00000       0.00000
+  6 s0    0       2.00000       1.00000       0.00000
+  7 s0    0       3.00000       1.00000       0.00000
+  8 s0    0       0.00000       2.00000       0.00000
+  9 s0    0       1.00000       2.00000       0.00000
+ 10 s0    0       2.00000       2.00000       0.00000
+ 11 s0    0       3.00000       2.00000       0.00000
+ 12 s0    0       0.00000       3.00000       0.00000
+ 13 s0    0       1.00000       3.00000       0.00000
+ 14 s0    0       2.00000       3.00000       0.00000
+ 15 s0    0       3.00000       3.00000       0.00000
+ ================================================================
+   Error in updating the Green's function :    0.000002
+ Meas #           1
+ Meas #           2
+ Meas #           3
+ Meas #           4
+ Meas #           5
+ Meas #           6
+ Meas #           7
+ Meas #           8
+ Meas #           9
+ Meas #          10
+ Meas #          11
+ Meas #          12
+ Meas #          13
+ Meas #          14
+ Meas #          15
+ Meas #          16
+ Meas #          17
+ Meas #          18
+ Meas #          19
+ Meas #          20
+ Meas #          21
+ Meas #          22
+ Meas #          23
+ Meas #          24
+ Meas #          25
+ Meas #          26
+ Meas #          27
+ Meas #          28
+ Meas #          29
+ Meas #          30
+ Meas #          31
+ Meas #          32
+ Meas #          33
+ Meas #          34
+ Meas #          35
+ Meas #          36
+ Meas #          37
+ Meas #          38
+ Meas #          39
+ Meas #          40
+ Meas #          41
+ Meas #          42
+ Meas #          43
+ Meas #          44
+ Meas #          45
+ Meas #          46
+ Meas #          47
+ Meas #          48
+ Meas #          49
+ Meas #          50
+ Meas #          51
+ Meas #          52
+ Meas #          53
+ Meas #          54
+ Meas #          55
+ Meas #          56
+ Meas #          57
+ Meas #          58
+ Meas #          59
+ Meas #          60
+ Meas #          61
+ Meas #          62
+ Meas #          63
+ Meas #          64
+ Meas #          65
+ Meas #          66
+ Meas #          67
+ Meas #          68
+ Meas #          69
+ Meas #          70
+ Meas #          71
+ Meas #          72
+ Meas #          73
+ Meas #          74
+ Meas #          75
+ Meas #          76
+ Meas #          77
+ Meas #          78
+ Meas #          79
+ Meas #          80
+ Meas #          81
+ Meas #          82
+ Meas #          83
+ Meas #          84
+ Meas #          85
+ Meas #          86
+ Meas #          87
+ Meas #          88
+ Meas #          89
+ Meas #          90
+ Meas #          91
+ Meas #          92
+ Meas #          93
+ Meas #          94
+ Meas #          95
+ Meas #          96
+ Meas #          97
+ Meas #          98
+ Meas #          99
+ Meas #         100
+ Meas #         101
+ Meas #         102
+ Meas #         103
+ Meas #         104
+ Meas #         105
+ Meas #         106
+ Meas #         107
+ Meas #         108
+ Meas #         109
+ Meas #         110
+ Meas #         111
+ Meas #         112
+ Meas #         113
+ Meas #         114
+ Meas #         115
+ Meas #         116
+ Meas #         117
+ Meas #         118
+ Meas #         119
+ Meas #         120
+ Meas #         121
+ Meas #         122
+ Meas #         123
+ Meas #         124
+ Meas #         125
+ Meas #         126
+ Meas #         127
+ Meas #         128
+ Meas #         129
+ Meas #         130
+ Meas #         131
+ Meas #         132
+ Meas #         133
+ Meas #         134
+ Meas #         135
+ Meas #         136
+ Meas #         137
+ Meas #         138
+ Meas #         139
+ Meas #         140
+ Meas #         141
+ Meas #         142
+ Meas #         143
+ Meas #         144
+ Meas #         145
+ Meas #         146
+ Meas #         147
+ Meas #         148
+ Meas #         149
+ Meas #         150
+ Meas #         151
+ Meas #         152
+ Meas #         153
+ Meas #         154
+ Meas #         155
+ Meas #         156
+ Meas #         157
+ Meas #         158
+ Meas #         159
+ Meas #         160
+ Meas #         161
+ Meas #         162
+ Meas #         163
+ Meas #         164
+ Meas #         165
+ Meas #         166
+ Meas #         167
+ Meas #         168
+ Meas #         169
+ Meas #         170
+ Meas #         171
+ Meas #         172
+ Meas #         173
+ Meas #         174
+ Meas #         175
+ Meas #         176
+ Meas #         177
+ Meas #         178
+ Meas #         179
+ Meas #         180
+ Meas #         181
+ Meas #         182
+ Meas #         183
+ Meas #         184
+ Meas #         185
+ Meas #         186
+ Meas #         187
+ Meas #         188
+ Meas #         189
+ Meas #         190
+ Meas #         191
+ Meas #         192
+ Meas #         193
+ Meas #         194
+ Meas #         195
+ Meas #         196
+ Meas #         197
+ Meas #         198
+ Meas #         199
+ Meas #         200
+ Running time:   2.8045740     (second)
+ Running time:  4.67429012E-02 (minutes)
+ Running time:  7.79048365E-04 (hours)
+ Running time:  3.24603498E-05 (days)

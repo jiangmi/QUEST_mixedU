@@ -1,0 +1,51 @@
+ General Geometry - Free Format                                                 
+  
+                          U :            0.000000    4.000000
+                       t_up :            1.000000
+                       t_dn :            1.000000
+                      mu_up :            0.000000    0.000000
+                      mu_dn :            0.000000    0.000000
+             Time slice - L :           50
+            Number of sites :          288
+                       dtau :            0.100000
+                       beta :            5.000000
+     Number of warmup sweep :         1000
+Number of measurement sweep :         5000
+   Frequency of measurement :            0
+                Random seed :      3234567
+ Frequency of recomputing G :            5
+Global move number of sites :            2
+               Accept count :     44575984
+               Reject count :     41737715
+    Approximate accept rate :            0.516442
+                      gamma :            0.649791
+   Global move accept count :        11398
+   Global move reject count :          602
+    Global move accept rate :            0.949833
+           Type of matrix B : Checkerboard
+         Type of matrix HSF : discrete
+ Sign of equal time measurements:
+                   Avg sign :   0.10000000E+01  0.00000000E+00
+                Avg up sign :   0.10000000E+01  0.00000000E+00
+                Avg dn sign :   0.10000000E+01  0.00000000E+00
+============================================================================
+ Equal time measurements:
+          Up spin occupancy :   0.50102742E+00  0.84742049E-03
+        Down spin occupancy :   0.49897258E+00  0.84742049E-03
+             <U*N_up*N_dn>  :   0.14325782E+00  0.23763292E-03
+             Kinetic energy :  -0.14525475E+01  0.45733143E-03
+               Total energy :  -0.80928973E+00  0.25635555E-03
+                    Density :   0.10000000E+01  0.00000000E+00
+                Chi_thermal :  -0.86269916E+04  0.41340416E+01
+              Specific heat :   0.24300257E+05  0.10762890E+02
+  XX Ferro structure factor :   0.27093826E+00  0.26173251E-02
+  ZZ Ferro structure factor :   0.27445768E+00  0.24278358E-01
+     XX AF structure factor :   0.13541337E+01  0.30517699E-02
+  Root Mean Square of XX AF :   0.13690550E+01  0.35879920E-02
+     ZZ AF structure factor :   0.13773513E+01  0.73690097E-01
+  Root Mean Square of ZZ AF :   0.17814417E+01  0.11299162E+00
+           Potential energy :  -0.35674218E+00  0.23763292E-03
+             Hopping energy :  -0.45254755E+00  0.45733143E-03
+           Double occupancy :   0.15520894E+00  0.49584649E-04
+      Magnetisation squared :   0.17239553E+00  0.24792325E-04
+============================================================================
