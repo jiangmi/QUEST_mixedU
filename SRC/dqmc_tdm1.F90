@@ -487,7 +487,12 @@ contains
     endif
 
     if (dt .ne. 0) then
-
+       ! value2 is for dt>0: G(beta-dt,0) = -G(-dt,0) = -G(0,dt)
+       !               dt<0: G(-dt,0) = -G(beta-dt,0)
+       ! Some rules for value1 --> value2:
+       ! upt0 <--> -up0t, dnt0 <--> -dn0t
+       ! uptt <-->  up00, dntt <--> dn00
+       
        value1  => T1%properties(IGFUN)%values(:, dt1, T1%tmp)
        value2  => T1%properties(IGFUN)%values(:, dt2, T1%tmp)
        do i = 1, T1%properties(IGFUN)%n
