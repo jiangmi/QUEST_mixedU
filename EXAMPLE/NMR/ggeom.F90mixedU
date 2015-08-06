@@ -5,7 +5,6 @@ program dqmc_ggeom
   use dqmc_hubbard
   use dqmc_mpi
   use dqmc_tdm1
-  use DQMC_HAMILT
 
   implicit none
 
@@ -15,7 +14,6 @@ program dqmc_ggeom
   type(GeomWrap)      :: Gwrap
   type(tdm1)          :: tm
   type(Gtau)          :: tau
-  type(Hamiltonian_t) :: hamilt
   character(len=slen) :: gfile
   logical             :: tformat
   integer             :: na, nt, nkt, nkg, i, j, k, slice, nhist, comp_tdm

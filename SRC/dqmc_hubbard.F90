@@ -386,6 +386,7 @@ contains
     do i = 1, n
        Map_up(i) = mu_up(Hub%S%Map(i))
        Map_dn(i) = mu_dn(Hub%S%Map(i))
+       write(*,*) "Hub%Map_up (mapped from mu_up) = ", Map_up(i)
     end do
 
     !write(*,*)
